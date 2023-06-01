@@ -1,0 +1,411 @@
+---
+title: "PROJET  SURVIVAL ANALYSIS Frequent employment turnover "
+author: "MAGOUJOU Macdonie Grace"
+date: "25/11/2022"
+output: pdf_document
+---
+```{r  setup, include=FALSE}
+library(tidyverse,quietly = T)
+library(survival,quietly = T)
+library(corrplot, quietly =T)
+library(ggfortify, quietly =T)
+library(caret, quietly=T)
+library(riskRegression, quietly =T)
+library(randomForestSRC, quietly =T)
+
+```
+
+# Introduction
+
+Frequent employment turnover can create a major loss in the 
+company. We want to predict an employee’s
+risk of quitting the company, for example, within a year. For that we will use survival analysis methods and classification method then compare them.
+
+# Data
+For this project, we will use the data set **turnover2.csv** with the following variables:
+
+| Nom | Type        | Description  |
+|:---------|:----------------|:----------------|
+| duration     | numeric   | experience in months     |
+| event      | numeric  | Censorship flag: 1 if quit, 0 otherwise |
+| gender | factor | gender|
+| age | numeric| age in years |
+| industry | categorical | employee’s industry |
+| profession | categorical | employee’s profession|
+| traffic | categorical | how employee came to the company |
+| coach | categorical| presence of a coach on probation |
+| head_gender | categorical| gender of the supervisor |
+| greywage | categorical| whether the salary is fully registered with tax authorities|
+| transport | categorical| employee’s means of transportation |
+|extraversion| numeric| extraversion score|
+|indepedent| numeric | independent score|
+|selfcontrol | numeric  |selfcontrol score|
+|anxiety | numeric | anxiety score|
+|novator | numeric | novator score|
+
+ We Import data and check variable types :
+
+```{r}
+dataset = read.csv("C:/Users/PC/Downloads/turnover2.csv", sep = ";", header = TRUE)
+```
+
+```{r}
+ glimpse(dataset)
+```
+
+ We change the type of the variables gender, industry, profession, traffic,coach, head_gender, greywage and Transportation to categorical because in the dataset, the are defined as a string. 
+
+```{r}
+dataset = dataset %>% mutate(gender=as.factor(gender),  
+                              industry = as.factor(industry),
+                             profession= as.factor(profession) ,
+                             traffic = as.factor(traffic) ,
+                             coach = as.factor(coach) ,
+                             head_gender = as.factor(head_gender),
+                             greywage = as.factor(greywage),
+                             Transportation = as.factor(Transportation)
+                             
+                             )
+```
+
+```{r}
+glimpse(dataset)
+```
+
+After changing the type of the variables, we check if data contains NA or duplicate lines. Our data don't contains NA but we have 13 duplicate lines so we remove them.
+
+```{r}
+colSums(is.na(dataset)) # check NA
+sum(duplicated(dataset)) #check duplicated lines
+dataset = distinct(dataset) # remove duplicated line
+sum(duplicated(dataset))
+```
+Then, we Make a histogram for the variable duration by coloring according to the value of event  and we notice that we have approximately the same effective in the group event = 1 and event = 0.  That means that in our dataset, the percentage of censorship is approximately 0.5. 
+
+```{r}
+ggplot(dataset, aes(x=duration, color = factor(event)))  + 
+  geom_histogram( fill="white")
+```
+
+To be sure, we Calculate the percentage of censorship in the dataset and with 0.4982079 percent in the group event = 0,  it confirm our suspicion
+
+```{r}
+prop.table(table(dataset$event))
+
+```
+
+We also make histograms for continuous covariates and bar charts for discrete ones. 
+
+
+```{r}
+ggplot(dataset, aes(x=age, color = factor(event))) + 
+  geom_histogram( fill="white")
+ggplot(dataset, aes(x=extraversion, color = factor(event))) + 
+  geom_histogram(fill="white" )
+ggplot(dataset, aes(x=independ, color = factor(event) )) + 
+  geom_histogram( fill="white")
+ggplot(dataset, aes(x=selfcontrol, color = factor(event))) + 
+  geom_histogram( fill="white")
+ggplot(dataset, aes(x=anxiety, color = factor(event))) + 
+  geom_histogram( fill="white")
+ggplot(dataset, aes(x=novator, color = factor(event))) + 
+  geom_histogram( fill="white")
+
+```
+
+
+```{r}
+ggplot(dataset, aes(x=gender, y= duration, color = factor(event))) + 
+  geom_bar(stat="identity")
+ggplot(dataset, aes(x=industry, y= duration, color = factor(event))) + 
+  geom_bar(stat="identity")
+ggplot(dataset, aes(x=profession, y= duration, color = factor(event))) + 
+  geom_bar(stat="identity")
+ggplot(dataset, aes(x=traffic, y= duration, color = factor(event))) + 
+  geom_bar(stat="identity")
+ggplot(dataset, aes(x=coach, y= duration, color = factor(event))) + 
+  geom_bar(stat="identity")
+ggplot(dataset, aes(x=head_gender, y= duration, color = factor(event))) + 
+  geom_bar(stat="identity")
+ggplot(dataset, aes(x=greywage, y= duration, color = factor(event))) + 
+  geom_bar(stat="identity")
+ggplot(dataset, aes(x=Transportation, y= duration, color = factor(event))) + 
+  geom_bar(stat="identity")
+```
+
+Now we use corrplot library, graphically represent the correlations between covariates.
+For that, we use the one hot encoding method by transform the data that they are entirely numerical, by creating the corresponding dummy variables.
+
+```{r}
+new_dataset = dataset %>% mutate(value  = 1) %>% spread(gender,value, fill = 0)  %>% 
+                                  mutate(value  = 1) %>% spread(industry,value, fill = 0) %>% 
+                                  mutate(value  = 1) %>% spread(profession,value, fill = 0) %>%
+                                  mutate(value  = 1) %>% spread(traffic,value, fill = 0) %>%
+                                  mutate(value  = 1) %>% spread(coach,value, fill = 0) %>%
+                                 #mutate(value  = 1) %>% spread(head_gender,value, fill = 0) %>%
+                                  mutate(value  = 1) %>% spread(greywage,value, fill = 0) %>%
+                                  mutate(value  = 1) %>% spread(Transportation,value, fill = 0)%>%
+                                  select(-m,-Banks,-HR,-rabrecNErab,-no,-white,-bus)
+new_dataset = rename(new_dataset,f_gender = f )
+#colnames(new_dataset)[10] = 'f_gender'
+new_dataset = new_dataset %>% mutate(value  = 1) %>% spread(head_gender,value, fill = 0)%>%
+                                  select(-f)
+new_dataset = rename(new_dataset, m_head_gender = m )
+#colnames(new_dataset)[48] = 'm_head_gender'
+glimpse(new_dataset)
+```
+
+Now we check the correlations between covariates and we can slightly see that there is a correlation between extrasion and selfcontrol(-0.53) and between  selfcontrol and novator(-0.56). Because of not having a high correlation, we will keep all of them.
+
+```{r}
+correlations = cor(new_dataset[,-c(1:2)])
+corrplot(correlations,method="color",type="upper")
+```
+
+# MOdelising
+
+We first graphically represent the survival functions in the subgroups defined by the categorical variables.
+
+
+```{r}
+autoplot(survfit(Surv(duration,event) ~ gender ,data = dataset), main = 'gender')
+autoplot(survfit(Surv(duration,event) ~ industry ,data = dataset), main = 'industry')
+autoplot(survfit(Surv(duration,event) ~ profession ,data = dataset), main = 'profession')
+autoplot(survfit(Surv(duration,event) ~ traffic ,data = dataset), main = 'traffic')
+autoplot(survfit(Surv(duration,event) ~ coach ,data = dataset), main ='coach')
+autoplot(survfit(Surv(duration,event) ~ head_gender ,data = dataset), main = 'head_gender')
+autoplot(survfit(Surv(duration,event) ~ greywage ,data = dataset), main = 'greywage')
+autoplot(survfit(Surv(duration,event) ~ Transportation ,data = dataset), main = 'Transportation')
+```
+
+First we can see that we don't have subgroup effect for the variables **gender**, **coach** and **header_gender**.
+
+
+## Create an 75/25 partition of data in train and test samples via the caret library.
+
+```{r}
+set.seed(0)
+trainIndex <- createDataPartition(dataset$event, p = 0.75, 
+                                  list = FALSE)
+                              
+data_train = dataset[trainIndex,]
+print(dim(data_train))
+data_test = dataset[-trainIndex,]
+print(dim(data_test))
+```
+
+We check that there is approximately the same percentage of censorship in train and test samples.
+
+```{r}
+prop.table(table(data_train$event))
+```
+
+```{r}
+prop.table(table(data_test$event))
+```
+
+
+## Cox model
+we make a first Cox model on the train sample.
+
+```{r}
+cox_simple = coxph(Surv(duration , event) ~ . , 
+                   data = data_train,
+                   x = TRUE)
+summary(cox_simple)
+```
+
+### Using the riskRegression library, represent the Brier score as a function of time.
+
+The Brier score is a number between 0 and 1 that represents the average squared distances between the observed survival status and the predicted survival probability.
+For data that are right censured, we adjust the score by weighting the squared distances using the inverse probability of censoring weights method.
+
+Given a dataset of $N$ sample  $\forall i \in[1,N]$,$(\overset{\rightarrow}{x_i}, \delta_i,T_i)$ is the format of a datapoint, $\hat G(t)$ the estimator of the conditional survival function of the censoring times calculated using the Kaplan-Meier method and  $\hat S(t,\overset{\rightarrow}{x_i})$  the predicted survival function $\forall t \in \mathbb{R}^+$.
+ The Brier score is :
+
+$$
+BS(t) = \frac{1}{N}\sum_{i=1}^{N}\Big(\frac{\big(0 - \hat S(t,\overset{\rightarrow}{x_i}) \big)^2.1_{T_i\le t\text{,} \delta_i=1}}{\hat G(T_i)} + \frac{\big(1 - \hat S(t,\overset{\rightarrow}{x_i}) \big)^2.1_{T_i> t }}{\hat G(t)}  \Big)
+$$
+
+The integrate Brier score is the model performance at all available times : 
+
+$$
+IBS(t_{max})=\frac{1}{t_{max}} \int_0^{t_{max}} BS(t)dt
+$$
+
+```{r}
+scores_cox_simple = Score(list("Cox simple" = cox_simple), data = data_test, 
+      formula = Surv(duration, event) ~ 1,
+      metrics = "brier",  
+      times=sort(unique(data_test$duration)))
+plotBrier(scores_cox_simple)
+```
+
+
+
+### Code a function that calculates the intégrate score on the test sample
+
+To code our Brier score, We need a function that evaluated the values of a step function define by is bins (where the function change of value) and values of the function at bins.
+```{r,include=FALSE}
+piecewise_survival_eval = function(x, bins, values){
+  # t= vector where the functions has to be evaluated
+ n_bins = length(bins)
+  n_values = length(values)
+  values = c(values,values[length(values)])
+  out = rep(0, length(x))
+  bin_idx = 1
+  i = 1
+  for (x_i in x){
+    if (x_i < min(bins)){
+      out[i] = 1
+    }
+    else{
+      if (x_i == min(bins)){
+        out[i] = values[1]
+        print(out[i])
+      }
+      else{
+        if (bin_idx != (n_bins - 1)){
+          while (x_i > bins[bin_idx]){
+            bin_idx = bin_idx + 1}
+        }
+        out[i] = values[bin_idx-1]}
+    }
+    i = i + 1}
+  
+  return(out)}
+
+```
+
+
+```{r,include=FALSE}
+Brier_score = function(t,survival_matrix , times , censored_times, censoring_indicators){
+  #t : time where the Brier score is evaluated
+  #survival_matrix : matrix of size (n_ind,length(times)) giving the estimated survival at each time of times
+  #times : vector where the survival functions in survival matrix have been evaluated
+  #censored_times : observed times on dataset, size n_ind
+  #censoring indicator : observed censoring indicator on dataset, size n_ind
+  n_obs = dim(survival_matrix)[1]
+  survival_matrix = cbind(rep(1,n_obs),survival_matrix)
+  times = c(0,times)
+  KM_censoring = survfit(Surv(censored_times,(1-censoring_indicators)) ~ 1 ) # Kaplan Meier estimation of 
+  # censoring distribution
+  epsilon = min(diff(times))/10
+  brier_score = 0
+  hat_bar_G_t = piecewise_survival_eval(t-epsilon,KM_censoring$time,KM_censoring$surv)
+  for (i in c(1:n_obs)){
+    if (censored_times[i]<= t & censoring_indicators[i] == 1){
+      hat_bar_G_T_i = piecewise_survival_eval(censored_times[i]-epsilon,KM_censoring$time,KM_censoring$surv)
+      brier_i = (0 - piecewise_survival_eval(t-epsilon,times,survival_matrix[i,]))^2 / (hat_bar_G_T_i)
+      brier_score = brier_score + brier_i
+    }
+    if (censored_times[i] > t){
+      
+      brier_i = (1 - piecewise_survival_eval(t-epsilon,times,survival_matrix[i,]))^2 / (hat_bar_G_t)
+      brier_score = brier_score + brier_i
+    }}
+  return(brier_score / n_obs)
+}
+
+
+## Brier score on a vector
+Brier_score_vec = function(x,survival_matrix , times , censored_times, censoring_indicators){
+  bs_cox = sapply(X=x,FUN = Brier_score,survival_matrix , times , censored_times ,censoring_indicators )
+  return(list(x = x, score = bs_cox))
+}
+
+## Integrated Brier score
+IBrier_score = function(brierscore){
+  return(sum(brierscore$score * diff(c(0,brierscore$x)))/ max(brierscore$x))
+}
+```
+To use our brier score function we need to construct a matrix that contains the estimated survival functions for the test individuals.
+
+```{r}
+surv_cox_simple = survfit(cox_simple)
+lp = predict(cox_simple,newdata = data_test,type ="lp")# linear prediction
+
+surv_cox_estimee = function(lp,Fbar_breslow){
+  return(Fbar_breslow^exp(lp))
+}
+survival_matrix_cox_simple = t(sapply(lp,surv_cox_estimee,Fbar_breslow = surv_cox_simple$surv)) # transpose so that it is compatible with our own function Brier_Score
+times_cox_simple = surv_cox_simple$time
+
+x = seq(0,93,1)
+bs_cox = Brier_score_vec(x,survival_matrix = survival_matrix_cox_simple , times = times_cox_simple ,
+                censored_times=  data_test$duration ,censoring_indicators = data_test$event)
+
+plot(bs_cox$x,bs_cox$score,type = "l",ylim=c(0,0.4))
+abline(h = 0.25,col="red")
+
+IBrier_score(bs_cox)
+```
+
+
+
+## Random Forest
+
+```{r}
+random_simple = rfsrc(Surv(duration,event)~. , data = data_train, importance = TRUE )
+
+plot(random_simple)
+```
+
+After using the random forest on a sample of 847  with 431 censoring data, we get based on 500 trees, an error of $34\%$ . Furthermore, except **coach**, **gender** and **head_gender** that are less important, the remaining variables should have a particular attention.
+
+
+```{r}
+plot(predict(random_simple, data_test, importance = TRUE))
+```
+
+On the test dataset of 282, the prediction error is close to $37\%$ . 
+
+```{r}
+scores_random_simple = Score(list("random simple" = random_simple), data = data_test, 
+      formula = Surv(duration, event) ~ 1,
+      metrics = "brier",  
+      times=sort(unique(data_test$duration)))
+plotBrier(scores_random_simple)
+```
+
+```{r}
+surv_RF = predict(random_simple,data_test)$survival
+time_RF = random_simple$time.interest
+x = seq(0,93,1)
+bs_RF = Brier_score_vec(x,survival_matrix = surv_RF , times = time_RF ,
+                censored_times=  data_test$duration ,censoring_indicators = data_test$event)
+
+plot(bs_RF$x,bs_RF$score,type = "l",ylim=c(0,0.4))
+abline(h = 0.25,col="red")
+
+IBrier_score(bs_RF)
+```
+
+
+
+```{r}
+scores_simple = Score(list("random simple" = random_simple, "cox simple" = cox_simple), data = data_test, 
+      formula = Surv(duration, event) ~ 1,
+      metrics = "brier",  
+      times=sort(unique(data_test$duration)))
+plotBrier(scores_simple)
+```
+By having a focus on the brier score, for prediction, i prefer the **random Forest model**.
+
+```{r}
+new_data = data.frame(duration = 36 , event= 0, gender= "f",age = 30,industry = "IT",  profession = "HR",traffic = "referal",
+                       coach = "yes",  head_gender = "m", greywage = "white", Transportation = "bus", extraversion = 5 , independ = 5, selfcontrol= 5 , anxiety= 5 , novator = 5 )
+new_data = new_data %>% mutate(gender=as.factor(gender),  
+                              industry = as.factor(industry),
+                             profession= as.factor(profession) ,
+                             traffic = as.factor(traffic) ,
+                             coach = as.factor(coach) ,
+                             head_gender = as.factor(head_gender),
+                             greywage = as.factor(greywage),
+                             Transportation = as.factor(Transportation),
+                             
+                             )
+pred = predict(random_simple, data_test, importance = TRUE)
+pred$survival
+```
+
