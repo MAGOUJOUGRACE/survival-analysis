@@ -1,0 +1,164 @@
+---
+title: |
+   | TP analyse de survie 
+   | avec R
+subtitle: |
+  | TP 13/10/2022
+  |  M2 DS
+author: "MAGOUJOU MACDONIE GRACE"
+date: "Jeudi 13 octobre 2022"
+output:
+  prettydoc::html_pretty:
+    toc: true
+    toc_depth: 1
+    number_sections: true
+---
+
+## IMPORT LIBRARY
+```{r}
+library(KMsurv)
+library(tidyverse)
+library(survival)
+library(ggfortify)
+library(MASS)
+```
+## Check if the variables have been correctly  imported
+```{r}
+data(pneumon) # import the data
+head(pneumon) # check the dataframe
+```
+
+# Check the variables names
+```{r}
+names(pneumon)
+```
+with the description of the dataset that R give us, We see that the variable "agepn" and "chldage" are the same.
+So we delete one of them.
+```{r}
+pneumon = pneumon %>% dplyr::select(-agepn)
+```
+# now we check the type of the variables
+```{r}
+str(pneumon)
+
+``` 
+We see that some variables that are suppose to be factor are int.
+We change it :
+```{r}
+pneumon = pneumon %>% mutate(urban = as.factor(urban) , 
+                              alcohol = as.factor(alcohol),
+                             smoke = as.factor(smoke) ,
+                             region = as.factor(region) ,
+                             poverty = as.factor(poverty) ,
+                             race = as.factor(race)
+                             )
+str(pneumon)
+```
+
+
+## Plot the kaplan-meier estimator for the survival function of the age at pneumonia
+```{r}
+KM_estimator = survfit(Surv(chldage,hospital) ~ 1,data = pneumon)
+autoplot(KM_estimator)
+```
+
+```{r}
+summary(KM_estimator)
+```
+The probability of of not having developed pneumonia at 6 
+months is 0.981 and the confidence interval is [0.976 , 0.986].
+
+
+## 3 estimer deux functions de survie car donnée diviser en deux(z=1,Z=0) avec sur...  et faire un test de logrank pour comparer les fonctions de survie 
+
+## Construct a dummy variable Z = 1 if infants were breast fed at birth, 0 if infants were never breast fed
+
+```{r}
+pneumon = pneumon %>%mutate(Z=recode(factor(wmonth > 0 ),                   'FALSE' ="0",'TRUE'="1"))
+
+head(pneumon$Z)
+```
+#  Test the hypothesis H0: there is not difference in distributions of age at first pneumonia between child whether were breast fed or not (logrank test)
+
+```{r}
+survdiff(Surv(chldage,hospital)~Z, data = pneumon)
+```
+
+the pvalue is smaller than 0.05, we reject H0. So, None breastfeed children are more likely to contract  pneumonia 
+
+
+## Test  the  hypothesis  (question 4)
+H0 : $\beta_{breastf}^⋆ = 0$,  i.e.,  the  survival  functions  for  the  two  types  of  breast  feeding ,are  equal,  using  the  likelihood  ratio,  and  Wald  tests. Find the estimate of $\beta_{breastf}^*$,$\hat{\beta}_{breastf}^*$, its standard error, and the ralative risk 
+
+```{r}
+cox_model=coxph(Surv(chldage,hospital)~Z, data = pneumon)
+summary(cox_model)
+
+```
+As we can see,with a significative pvalue, all those tests shows that there are  different between child who breastfeed and  who don't breastfeed.
+the estimate of $\beta_{breastf}^*$,$\hat{\beta}_{breastf}^*$ is -1.0970
+the estimate of the standard error is 0.2973
+the ralative risk (hazard ratio) is  0.3339 (1 is not in his confidence interval so it is significatie and we can say that child who breastfeed, multiply their risk to have pneumonia by 0.3339).
+
+
+## ajusting by adding others variables (question 5)
+
+```{r}
+variable = names(pneumon)[3:14]
+for(v in variable){
+ 
+  
+  f= as.formula(paste(c("Surv(chldage,hospital) ~ Z",v),
+                 collapse = '+')) # formula that add others variables
+  
+  print(summary(coxph(f, data=pneumon)))
+  print(f)
+}
+
+```
+
+We note that the pvalue of the wald test is almost smaller than 0.05 and the hazard ratio is almost smaller than 0.6, so we can say that adjusting with any of those variables don't change the fact that breasfeedind child is less affected by pneumonia.
+
+We also note that, when we adjust with the variable "wmonth", in the confidence interval of the hazard ratio of "Z", we have 1, so we have the possibility of having the same relative risk. We note the same with "sfmonth";
+We use the boxplot to check the correlation between "Z" and "wmonth".
+```{r}
+ggplot(pneumon , aes(x=Z,y=wmonth)) + geom_boxplot()
+ggplot(pneumon , aes(x=Z,y=sfmonth)) + geom_boxplot()
+
+```
+
+In the two case, we notice the difference between the mean of each group.
+Its shows that "wmonth" and "sfmonth" are to correlate with "Z". We should remove them.
+
+## Question 6 build a model
+
+Start with a model with all variable except "wmonth" and "sfmonth"
+```{r}
+allcox = coxph(Surv(chldage,hospital)~ . - wmonth -sfmonth ,
+                  data =pneumon)
+summary(allcox)
+
+```
+
+We note that if we fixe the level of the test to  0.1, the wald test of this model shows us the coef of the variables "mthage", "smoke", "nsibs", and "Z"  are not null.
+So we can compute the final model with those variables.
+
+```{r}
+finalcox= coxph(Surv(chldage,hospital)~ Z + mthage +smoke + nsibs ,
+                  data =pneumon)
+
+summary(finalcox)
+```
+
+## Question 7 : Predict
+
+```{r}
+new_data = data.frame(chldage = 6, hospital = 0, Z= "0", mthage = 31 , smoke = 0, nsibs = 2 )
+new_data = new_data %>% mutate(smoke = as.factor(smoke))
+predict(finalcox,newdata = new_data, type="lp") 
+```
+
+
+
+
+
